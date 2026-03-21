@@ -75,6 +75,33 @@ function nestedMessage(responseData: unknown, fallback: string) {
 
 export function registerVideoTools(server: McpServer, http: ToonflowHttpClient, runtime: ToonflowRuntimeConfig) {
   server.registerTool(
+    "toonflow_delete_video_config",
+    {
+      title: "Delete Toonflow Video Config",
+      description: "Delete a video config and all generated video results linked to it.",
+      inputSchema: {
+        video_config_id: z.number(),
+      },
+    },
+    withToolResult(async ({ video_config_id }) => {
+      const response = await http.post<Record<string, unknown>>("/video/deleteVideoConfig", {
+        id: video_config_id,
+      });
+
+      return {
+        message: nestedMessage(response.data, response.message),
+        data: {
+          deletedConfigId:
+            response.data && typeof response.data === "object" && "deletedConfigId" in response.data
+              ? Number((response.data as { deletedConfigId?: unknown }).deletedConfigId)
+              : video_config_id,
+          details: response.data,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_create_video_config",
     {
       title: "Create Toonflow Video Config",
@@ -343,6 +370,59 @@ export function registerVideoTools(server: McpServer, http: ToonflowHttpClient, 
           configId: response.data.configId == null ? config_id : Number(response.data.configId),
           projectId,
           scriptId,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_save_video",
+    {
+      title: "Save Toonflow Video",
+      description: "Mark one generated video result as the selected final video and persist its metadata.",
+      inputSchema: {
+        video_id: z.number(),
+        file_path: z.string(),
+        storyboard_imgs: z.array(z.string()).optional(),
+        prompt: z.string().optional(),
+        model: z.string().optional(),
+        duration: z.number().optional(),
+        resolution: z.string().optional(),
+        script_id: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ video_id, file_path, storyboard_imgs, prompt, model, duration, resolution, script_id }) => {
+      const response = await http.post("/video/saveVideo", {
+        id: video_id,
+        filePath: file_path,
+        storyboardImgs: storyboard_imgs,
+        prompt,
+        model,
+        time: duration,
+        resolution,
+      });
+
+      let video: ReturnType<typeof normalizeVideo> | null = null;
+      if (script_id || runtime.snapshot.rememberedIds.scriptId) {
+        const scriptId = runtime.resolveId("scriptId", script_id);
+        const videosResponse = await http.post<Array<Record<string, unknown>>>("/video/getVideo", {
+          scriptId,
+          specifyIds: [video_id],
+        });
+        video = videosResponse.data.map(normalizeVideo).find((item) => item.videoId === video_id) || null;
+        runtime.remember({
+          scriptId,
+          videoId: video_id,
+          videoConfigId: video?.configId ?? undefined,
+        });
+      } else {
+        runtime.remember({ videoId: video_id });
+      }
+
+      return {
+        message: nestedMessage(null, response.message),
+        data: {
+          video,
         },
       };
     }),

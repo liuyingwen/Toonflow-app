@@ -42,6 +42,110 @@ function normalizeAsset(row: Record<string, unknown>) {
 
 export function registerAssetTools(server: McpServer, http: ToonflowHttpClient, runtime: ToonflowRuntimeConfig) {
   server.registerTool(
+    "toonflow_add_asset",
+    {
+      title: "Add Toonflow Asset",
+      description: "Create a manual asset record when outline-generated metadata is missing or needs supplementation.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        script_id: z.number().optional(),
+        asset_type: z.enum(["role", "scene", "props", "storyboard"]),
+        name: z.string(),
+        description: z.string(),
+        prompt: z.string(),
+        remark: z.string().optional(),
+        episode: z.string().optional(),
+      },
+    },
+    withToolResult(async ({ project_id, script_id, asset_type, name, description, prompt, remark, episode }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const resolvedScriptId = script_id ?? runtime.snapshot.rememberedIds.scriptId ?? null;
+
+      const response = await http.post("/assets/addAssets", {
+        projectId,
+        scriptId: resolvedScriptId,
+        name,
+        intro: description,
+        type: assetTypeMap[asset_type],
+        prompt,
+        remark,
+        episode,
+      });
+
+      const assetsResponse = await http.post<Array<Record<string, unknown>>>("/assets/getAssets", {
+        projectId,
+        type: assetTypeMap[asset_type],
+      });
+
+      const asset =
+        assetsResponse.data
+          .map(normalizeAsset)
+          .sort((left, right) => right.assetId - left.assetId)
+          .find(
+            (item) =>
+              item.name === name &&
+              item.description === description &&
+              item.prompt === prompt &&
+              item.assetType === asset_type &&
+              item.scriptId === resolvedScriptId,
+          ) || null;
+
+      runtime.remember({ projectId, scriptId: resolvedScriptId ?? undefined });
+
+      return {
+        message: response.message,
+        data: {
+          asset,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_delete_asset_image",
+    {
+      title: "Delete Toonflow Asset Image",
+      description: "Delete a generated asset image candidate or clear the final selected asset image.",
+      inputSchema: {
+        image_id: z.number().optional(),
+        asset_id: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ image_id, asset_id }) => {
+      if (!image_id && !asset_id) {
+        throw new Error("Either image_id or asset_id is required.");
+      }
+
+      const response = await http.post("/assets/delAssetsImage", {
+        imageId: image_id,
+        assetsId: asset_id,
+      });
+
+      let imageState: Record<string, unknown> | null = null;
+      if (asset_id) {
+        const stateResponse = await http.post<Record<string, unknown>>("/assets/getImage", {
+          assetsId: asset_id,
+        });
+        imageState = {
+          assetId: Number(stateResponse.data.id),
+          state: String(stateResponse.data.state || ""),
+          filePath: String(stateResponse.data.filePath || ""),
+          generatedImages: Array.isArray(stateResponse.data.tempAssets) ? stateResponse.data.tempAssets : [],
+        };
+      }
+
+      return {
+        message: response.message,
+        data: {
+          assetId: asset_id ?? null,
+          imageId: image_id ?? null,
+          imageState,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_list_assets",
     {
       title: "List Toonflow Assets",

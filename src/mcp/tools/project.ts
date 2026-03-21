@@ -46,6 +46,69 @@ function normalizeNovel(row: NovelRow) {
 
 export function registerProjectTools(server: McpServer, http: ToonflowHttpClient, runtime: ToonflowRuntimeConfig) {
   server.registerTool(
+    "toonflow_get_art_styles",
+    {
+      title: "Get Toonflow Art Styles",
+      description: "Fetch art style presets from Toonflow by category name.",
+      inputSchema: {
+        name: z.string(),
+      },
+    },
+    withToolResult(async ({ name }) => {
+      const response = await http.post<unknown[]>("/artStyle/getArtStyle", { name });
+
+      return {
+        message: response.message,
+        data: {
+          name,
+          styles: response.data,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_update_project",
+    {
+      title: "Update Toonflow Project",
+      description: "Update project metadata such as intro, type, art style, or video ratio.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        intro: z.string().optional(),
+        type: z.string().optional(),
+        art_style: z.string().optional(),
+        video_ratio: z.string().optional(),
+        project_type: z.string().optional(),
+      },
+    },
+    withToolResult(async ({ project_id, intro, type, art_style, video_ratio, project_type }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+
+      const response = await http.post("/project/updateProject", {
+        id: projectId,
+        intro,
+        type,
+        artStyle: art_style,
+        videoRatio: video_ratio,
+        projectType: project_type,
+      });
+
+      const projectResponse = await http.post<ProjectRow[]>("/project/getSingleProject", {
+        id: projectId,
+      });
+      const project = projectResponse.data[0] ? normalizeProject(projectResponse.data[0]) : null;
+      runtime.remember({ projectId });
+
+      return {
+        message: response.message,
+        data: {
+          project,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_create_project",
     {
       title: "Create Toonflow Project",
@@ -210,6 +273,48 @@ export function registerProjectTools(server: McpServer, http: ToonflowHttpClient
         data: {
           projectId,
           chapters: response.data.map(normalizeNovel),
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_update_novel",
+    {
+      title: "Update Toonflow Novel Chapter",
+      description: "Update one imported novel chapter for a project.",
+      inputSchema: {
+        chapter_id: z.number(),
+        index: z.union([z.number(), z.string()]),
+        reel: z.string(),
+        chapter: z.string(),
+        chapter_data: z.string(),
+        project_id: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ chapter_id, index, reel, chapter, chapter_data, project_id }) => {
+      const response = await http.post("/novel/updateNovel", {
+        id: chapter_id,
+        index,
+        reel,
+        chapter,
+        chapterData: chapter_data,
+      });
+
+      let chapterRow: ReturnType<typeof normalizeNovel> | null = null;
+      if (project_id || runtime.snapshot.rememberedIds.projectId) {
+        const projectId = runtime.resolveId("projectId", project_id);
+        const novelResponse = await http.post<NovelRow[]>("/novel/getNovel", {
+          projectId,
+        });
+        chapterRow = novelResponse.data.map(normalizeNovel).find((item) => item.id === chapter_id) || null;
+        runtime.remember({ projectId });
+      }
+
+      return {
+        message: response.message,
+        data: {
+          chapter: chapterRow,
         },
       };
     }),

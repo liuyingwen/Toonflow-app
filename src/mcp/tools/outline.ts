@@ -148,6 +148,38 @@ export function registerOutlineTools(server: McpServer, http: ToonflowHttpClient
   );
 
   server.registerTool(
+    "toonflow_update_storyline",
+    {
+      title: "Update Toonflow Storyline",
+      description: "Create or overwrite the saved storyline for a project.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        content: z.string(),
+      },
+    },
+    withToolResult(async ({ project_id, content }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const response = await http.post("/outline/updateStoryline", {
+        projectId,
+        content,
+      });
+
+      runtime.remember({ projectId });
+
+      return {
+        message: response.message,
+        data: {
+          projectId,
+          storyline: {
+            projectId,
+            content,
+          },
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_get_storyline",
     {
       title: "Get Toonflow Storyline",
@@ -203,6 +235,43 @@ export function registerOutlineTools(server: McpServer, http: ToonflowHttpClient
   );
 
   server.registerTool(
+    "toonflow_update_outline",
+    {
+      title: "Update Toonflow Outline",
+      description: "Overwrite one outline row with edited outline JSON data.",
+      inputSchema: {
+        outline_id: z.number(),
+        data: z.any(),
+        project_id: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ outline_id, data, project_id }) => {
+      const serialized = typeof data === "string" ? data : JSON.stringify(data);
+      const response = await http.post("/outline/updateOutline", {
+        id: outline_id,
+        data: serialized,
+      });
+
+      let outline: ReturnType<typeof normalizeOutline> | null = null;
+      if (project_id || runtime.snapshot.rememberedIds.projectId) {
+        const projectId = runtime.resolveId("projectId", project_id);
+        const outlinesResponse = await http.post<Array<Record<string, unknown>>>("/outline/getOutline", { projectId });
+        outline = outlinesResponse.data.map(normalizeOutline).find((item) => item.outlineId === outline_id) || null;
+        runtime.remember({ projectId, outlineId: outline_id });
+      } else {
+        runtime.remember({ outlineId: outline_id });
+      }
+
+      return {
+        message: response.message,
+        data: {
+          outline,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_get_scripts",
     {
       title: "Get Toonflow Scripts",
@@ -228,6 +297,46 @@ export function registerOutlineTools(server: McpServer, http: ToonflowHttpClient
         data: {
           projectId,
           scripts,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_update_script",
+    {
+      title: "Update Toonflow Script",
+      description: "Overwrite one script row with edited script content.",
+      inputSchema: {
+        script_id: z.number(),
+        content: z.string(),
+        project_id: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ script_id, content, project_id }) => {
+      const response = await http.post("/outline/updateScript", {
+        id: script_id,
+        content,
+      });
+
+      let script: ReturnType<typeof normalizeScript> | null = null;
+      if (project_id || runtime.snapshot.rememberedIds.projectId) {
+        const projectId = runtime.resolveId("projectId", project_id);
+        const scriptsResponse = await http.post<Array<Record<string, unknown>>>("/script/geScriptApi", { projectId });
+        script = scriptsResponse.data.map(normalizeScript).find((item) => item.scriptId === script_id) || null;
+        runtime.remember({
+          projectId,
+          scriptId: script_id,
+          outlineId: script?.outlineId,
+        });
+      } else {
+        runtime.remember({ scriptId: script_id });
+      }
+
+      return {
+        message: response.message,
+        data: {
+          script,
         },
       };
     }),

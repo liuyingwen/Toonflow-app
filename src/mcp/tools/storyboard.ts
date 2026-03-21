@@ -60,6 +60,35 @@ async function sendStoryboardMessages(session: ToonflowWsSession, messages: stri
 
 export function registerStoryboardTools(server: McpServer, http: ToonflowHttpClient, runtime: ToonflowRuntimeConfig) {
   server.registerTool(
+    "toonflow_upload_storyboard_image",
+    {
+      title: "Upload Toonflow Storyboard Image",
+      description: "Upload a local/base64 storyboard reference image into Toonflow's project storage.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        base64_data: z.string(),
+      },
+    },
+    withToolResult(async ({ project_id, base64_data }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const response = await http.post<string>("/storyboard/uploadImage", {
+        projectId,
+        base64Data: base64_data,
+      });
+
+      runtime.remember({ projectId });
+
+      return {
+        message: response.message,
+        data: {
+          projectId,
+          url: response.data,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_run_storyboard_agent",
     {
       title: "Run Toonflow Storyboard Agent",
@@ -145,6 +174,53 @@ export function registerStoryboardTools(server: McpServer, http: ToonflowHttpCli
   );
 
   server.registerTool(
+    "toonflow_generate_storyboard_image",
+    {
+      title: "Generate Toonflow Storyboard Image",
+      description: "Generate a merged storyboard image from a segment's cells and prompts.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        script_id: z.number().optional(),
+        segment_id: z.number(),
+        title: z.string(),
+        x: z.number(),
+        y: z.number().nullable().optional(),
+        cells: z.array(
+          z.object({
+            src: z.string().optional(),
+            prompt: z.string(),
+          }),
+        ),
+      },
+    },
+    withToolResult(async ({ project_id, script_id, segment_id, title, x, y, cells }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const scriptId = runtime.resolveId("scriptId", script_id);
+      const response = await http.post<unknown>("/storyboard/generateShotImage", {
+        projectId,
+        scriptId,
+        segmentId: segment_id,
+        title,
+        x,
+        y: y ?? null,
+        cells,
+      });
+
+      runtime.remember({ projectId, scriptId });
+
+      return {
+        message: response.message,
+        data: {
+          projectId,
+          scriptId,
+          segmentId: segment_id,
+          image: response.data,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
     "toonflow_save_storyboards",
     {
       title: "Save Toonflow Storyboards",
@@ -193,6 +269,91 @@ export function registerStoryboardTools(server: McpServer, http: ToonflowHttpCli
           savedCount: results.length,
           projectId: results[0]?.project_id ?? null,
           scriptId: results[0]?.script_id ?? null,
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_edit_storyboard_image",
+    {
+      title: "Edit Toonflow Storyboard Image",
+      description: "Edit a storyboard image with an image-editing prompt and optionally attach it back to an asset.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        prompt: z.string(),
+        file_path: z.any(),
+        asset_id: z.any().optional(),
+      },
+    },
+    withToolResult(async ({ project_id, prompt, file_path, asset_id }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const response = await http.post<Record<string, unknown>>("/storyboard/storyboardImageEdit", {
+        projectId,
+        prompt,
+        filePath: file_path,
+        assetsId: asset_id,
+      });
+
+      runtime.remember({ projectId });
+
+      return {
+        message: response.message,
+        data: {
+          projectId,
+          assetId: asset_id ?? null,
+          imageId: response.data.id == null ? null : Number(response.data.id),
+          url: response.data.url == null ? null : String(response.data.url),
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_batch_superscore_storyboard_images",
+    {
+      title: "Batch Superscore Toonflow Storyboard Images",
+      description: "Run super-resolution on storyboard image cells and return the upgraded image URLs.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        script_id: z.number().optional().nullable(),
+        image_list: z.array(
+          z.object({
+            cells: z.array(
+              z.object({
+                id: z.string(),
+                prompt: z.string().optional(),
+                src: z.string(),
+              }),
+            ),
+          }),
+        ),
+      },
+    },
+    withToolResult(async ({ project_id, script_id, image_list }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const scriptId = script_id ?? runtime.snapshot.rememberedIds.scriptId ?? null;
+      const response = await http.post<Array<Record<string, unknown>>>("/storyboard/batchSuperScoreImage", {
+        projectId,
+        scriptId,
+        imageList: image_list,
+      });
+
+      runtime.remember({ projectId, scriptId: scriptId ?? undefined });
+
+      return {
+        message: response.message,
+        data: {
+          projectId,
+          scriptId,
+          images: response.data.map((item) => ({
+            id: String(item.id || ""),
+            projectId: Number(item.projectId),
+            scriptId: item.scriptId == null ? null : Number(item.scriptId),
+            filePath: String(item.filePath || ""),
+            src: String(item.src || ""),
+            type: String(item.type || ""),
+          })),
         },
       };
     }),
