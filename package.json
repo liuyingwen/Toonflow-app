@@ -20,6 +20,8 @@
   "scripts": {
     "dev": "nodemon --inspect --exec tsx src/app.ts",
     "dev:gui": "electronmon -r tsx scripts/main.ts",
+    "mcp:dev": "tsx src/mcp/server.ts",
+    "mcp:smoke": "tsx scripts/mcp-smoke.ts",
     "lint": "tsc --noEmit",
     "build": "cross-env NODE_ENV=prod tsx scripts/build.ts",
     "pack": "electron-builder --dir",
@@ -41,6 +43,7 @@
     "@ai-sdk/openai": "^3.0.25",
     "@ai-sdk/openai-compatible": "^2.0.27",
     "@ai-sdk/xai": "^3.0.47",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@rmp135/sql-ts": "^2.2.0",
     "ai": "^6.0.67",
     "axios": "^1.13.2",
@@ -63,6 +66,7 @@
     "sharp": "^0.34.5",
     "sqlite3": "^5.1.7",
     "uuid": "^13.0.0",
+    "ws": "^8.19.0",
     "zhipu-ai-provider": "^0.2.2",
     "zod": "^4.3.5"
   },
