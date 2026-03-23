@@ -36,7 +36,8 @@ RUN apk add --no-cache nginx supervisor && \
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/yarn.lock ./
-COPY db.sqlite ./db.sqlite
+# db.sqlite 由运行时自动创建，通过 volume 挂载持久化
+COPY db.sqlite* ./
 
 # 复制静态页面到 nginx 目录
 COPY --from=builder /app/scripts/web /usr/share/nginx/html
