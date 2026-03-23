@@ -30,8 +30,8 @@
     "dist:mac": "yarn build && electron-builder --mac",
     "dist:linux": "yarn build && electron-builder --linux",
     "test": "cross-env NODE_ENV=prod node build/app.js",
-    "docker:build": "docker-compose -f docker/docker-compose.yml up -d --build",
-    "docker:local": "docker-compose -f docker/docker-compose.local.yml up -d --build",
+    "docker:build": "docker compose -f docker/docker-compose.yml up -d --build",
+    "docker:local": "docker compose -f docker/docker-compose.local.yml up -d --build",
     "debug:ai": "npx @ai-sdk/devtools",
     "license": "bun run scripts/license.ts"
   },
