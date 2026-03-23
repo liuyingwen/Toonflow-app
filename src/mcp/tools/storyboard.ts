@@ -118,7 +118,7 @@ export function registerStoryboardTools(server: McpServer, http: ToonflowHttpCli
       const projectId = runtime.resolveId("projectId", project_id);
       const scriptId = runtime.resolveId("scriptId", script_id);
       const session = new ToonflowWsSession(runtime);
-      const timeoutMs = timeout_ms ?? 120_000;
+      const timeoutMs = timeout_ms ?? 600_000;
 
       try {
         await session.connect("/storyboard/chatStoryboard", { projectId, scriptId }, { timeoutMs, waitForInit: true });

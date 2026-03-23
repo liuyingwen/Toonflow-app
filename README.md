@@ -166,8 +166,14 @@ git clone https://github.com/HBAI-Ltd/Toonflow-app.git
 cd Toonflow-app
 
 # 使用本地源码构建
-docker-compose -f docker/docker-compose.local.yml up -d --build
+docker compose -f docker/docker-compose.local.yml up -d --build
 ```
+
+本地构建默认会挂载以下目录，直接复用本机数据：
+
+- `./logs -> /var/log`
+- `./db.sqlite -> /app/db.sqlite`
+- `./uploads -> /app/uploads`
 
 ### 服务端口说明
 
@@ -178,13 +184,13 @@ docker-compose -f docker/docker-compose.local.yml up -d --build
 
 ### 数据持久化
 
-默认日志目录会挂载到宿主机 `./logs` 目录。如需持久化上传文件或数据库，可在 `docker-compose.yml` 中添加 volumes：
+默认本地构建会挂载宿主机 `./logs`、`./db.sqlite`、`./uploads`。如需在在线部署的 `docker-compose.yml` 中也持久化上传文件或数据库，可添加 volumes：
 
 ```yaml
 volumes:
   - ./logs:/var/log
   - ./uploads:/app/uploads # 持久化上传文件
-  - ./data:/app/data # 持久化数据库（如有）
+  - ./db.sqlite:/app/db.sqlite # 持久化数据库
 ```
 
 ### 常用操作命令

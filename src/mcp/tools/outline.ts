@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { ToonflowRuntimeConfig } from "../config";
 import { ToonflowHttpClient } from "../client/http";
@@ -8,6 +9,14 @@ import { withToolResult } from "../types";
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+interface OutlineSessionEntry {
+  session: ToonflowWsSession;
+  projectId: number;
+  createdAt: string;
+}
+
+const outlineSessions = new Map<string, OutlineSessionEntry>();
 
 function normalizeOutline(row: Record<string, unknown>) {
   const data = typeof row.data === "string" ? JSON.parse(row.data) : {};
@@ -83,7 +92,190 @@ async function sendAgentMessages(session: ToonflowWsSession, messages: string[],
   return responseTexts;
 }
 
+async function clearSessionHistory(session: ToonflowWsSession) {
+  const cursor = session.getLastIndex();
+  session.send({ type: "cleanHistory", data: null });
+  await session.waitFor(
+    (event) => event.type === "notice" || event.type === "error",
+    10_000,
+    "Outline cleanHistory timeout",
+    cursor,
+  );
+}
+
+async function sendSingleAgentMessage(session: ToonflowWsSession, message: string, timeoutMs: number) {
+  const cursor = session.getLastIndex();
+  session.send({
+    type: "msg",
+    data: {
+      type: "user",
+      data: message,
+    },
+  });
+
+  const event = await session.waitFor(
+    (candidate) => candidate.type === "response_end" || candidate.type === "error",
+    timeoutMs,
+    "Outline agent response timeout",
+    cursor,
+  );
+
+  if (event.type === "error") {
+    throw new Error(String(event.data || "Outline agent failed"));
+  }
+
+  await sleep(200);
+
+  return {
+    response: String(event.data || ""),
+    events: session.getEvents().filter((candidate) => candidate.index > cursor),
+  };
+}
+
 export function registerOutlineTools(server: McpServer, http: ToonflowHttpClient, runtime: ToonflowRuntimeConfig) {
+  server.registerTool(
+    "toonflow_open_outline_agent_session",
+    {
+      title: "Open Toonflow Outline Agent Session",
+      description: "Open a persistent Toonflow outline WebSocket session for step-by-step guided interaction.",
+      inputSchema: {
+        project_id: z.number().optional(),
+        clear_history: z.boolean().optional(),
+        timeout_ms: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ project_id, clear_history, timeout_ms }) => {
+      const projectId = runtime.resolveId("projectId", project_id);
+      const timeoutMs = timeout_ms ?? 1_800_000;
+      const session = new ToonflowWsSession(runtime);
+      await session.connect("/outline/agentsOutline", { projectId }, { timeoutMs, waitForInit: true });
+
+      try {
+        if (clear_history) {
+          await clearSessionHistory(session);
+        }
+      } catch (error) {
+        await session.close();
+        throw error;
+      }
+
+      const sessionId = randomUUID();
+      outlineSessions.set(sessionId, {
+        session,
+        projectId,
+        createdAt: new Date().toISOString(),
+      });
+
+      runtime.remember({ projectId });
+
+      return {
+        message: "Outline agent session opened",
+        data: {
+          sessionId,
+          projectId,
+          createdAt: outlineSessions.get(sessionId)?.createdAt,
+          events: session.getEvents(),
+        },
+      };
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_send_outline_agent_session_message",
+    {
+      title: "Send Toonflow Outline Agent Session Message",
+      description: "Send one user message into an existing Toonflow outline WebSocket session and wait for the next response_end.",
+      inputSchema: {
+        session_id: z.string(),
+        message: z.string().min(1),
+        refresh_state: z.boolean().optional(),
+        timeout_ms: z.number().optional(),
+      },
+    },
+    withToolResult(async ({ session_id, message, refresh_state, timeout_ms }) => {
+      const entry = outlineSessions.get(session_id);
+      if (!entry) {
+        throw new Error(`Outline session not found: ${session_id}`);
+      }
+
+      const timeoutMs = timeout_ms ?? 1_800_000;
+
+      try {
+        const result = await sendSingleAgentMessage(entry.session, message, timeoutMs);
+        const state = refresh_state === false ? null : await fetchOutlineState(http, entry.projectId);
+
+        if (state?.outlines[0]) {
+          runtime.remember({
+            projectId: entry.projectId,
+            outlineId: state.outlines[0].outlineId,
+            scriptId: state.scripts[0]?.scriptId,
+          });
+        } else {
+          runtime.remember({ projectId: entry.projectId });
+        }
+
+        return {
+          message: "Outline agent step completed",
+          data: {
+            sessionId: session_id,
+            projectId: entry.projectId,
+            response: result.response,
+            refreshEvents: result.events
+              .filter((event) => event.type === "refresh")
+              .map((event) => String(event.data || "")),
+            events: result.events,
+            ...(state || {}),
+          },
+        };
+      } catch (error) {
+        outlineSessions.delete(session_id);
+        await entry.session.close().catch(() => undefined);
+        throw error;
+      }
+    }),
+  );
+
+  server.registerTool(
+    "toonflow_close_outline_agent_session",
+    {
+      title: "Close Toonflow Outline Agent Session",
+      description: "Close a persistent Toonflow outline WebSocket session.",
+      inputSchema: {
+        session_id: z.string(),
+        refresh_state: z.boolean().optional(),
+      },
+    },
+    withToolResult(async ({ session_id, refresh_state }) => {
+      const entry = outlineSessions.get(session_id);
+      if (!entry) {
+        throw new Error(`Outline session not found: ${session_id}`);
+      }
+
+      outlineSessions.delete(session_id);
+      await entry.session.close();
+
+      const state = refresh_state === false ? null : await fetchOutlineState(http, entry.projectId);
+      if (state?.outlines[0]) {
+        runtime.remember({
+          projectId: entry.projectId,
+          outlineId: state.outlines[0].outlineId,
+          scriptId: state.scripts[0]?.scriptId,
+        });
+      } else {
+        runtime.remember({ projectId: entry.projectId });
+      }
+
+      return {
+        message: "Outline agent session closed",
+        data: {
+          sessionId: session_id,
+          projectId: entry.projectId,
+          ...(state || {}),
+        },
+      };
+    }),
+  );
+
   server.registerTool(
     "toonflow_run_outline_agent",
     {
@@ -100,20 +292,13 @@ export function registerOutlineTools(server: McpServer, http: ToonflowHttpClient
     withToolResult(async ({ project_id, messages, clear_history, refresh_state, timeout_ms }) => {
       const projectId = runtime.resolveId("projectId", project_id);
       const session = new ToonflowWsSession(runtime);
-      const timeoutMs = timeout_ms ?? 120_000;
+      const timeoutMs = timeout_ms ?? 1_800_000;
 
       try {
         await session.connect("/outline/agentsOutline", { projectId }, { timeoutMs, waitForInit: true });
 
         if (clear_history) {
-          const cursor = session.getLastIndex();
-          session.send({ type: "cleanHistory", data: null });
-          await session.waitFor(
-            (event) => event.type === "notice" || event.type === "error",
-            10_000,
-            "Outline cleanHistory timeout",
-            cursor,
-          );
+          await clearSessionHistory(session);
         }
 
         const responseTexts = await sendAgentMessages(session, messages, timeoutMs);

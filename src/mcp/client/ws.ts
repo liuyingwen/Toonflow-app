@@ -33,6 +33,7 @@ export class ToonflowWsSession {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         ws.removeAllListeners();
+        ws.terminate();
         reject(new Error(`WebSocket connect timeout for ${pathname}`));
       }, timeoutMs);
 
@@ -43,6 +44,7 @@ export class ToonflowWsSession {
 
       ws.once("error", (error) => {
         clearTimeout(timer);
+        ws.terminate();
         reject(error);
       });
     });
@@ -139,11 +141,19 @@ export class ToonflowWsSession {
     return [...this.events].reverse().find((event) => event.type === type);
   }
 
-  async close(code = 1000) {
+  async close(code = 1000, timeoutMs = 3_000) {
     if (!this.ws || this.closed) return;
     const ws = this.ws;
     await new Promise<void>((resolve) => {
-      ws.once("close", () => resolve());
+      const timer = setTimeout(() => {
+        ws.removeAllListeners("close");
+        ws.terminate();
+        resolve();
+      }, timeoutMs);
+      ws.once("close", () => {
+        clearTimeout(timer);
+        resolve();
+      });
       ws.close(code);
     });
   }

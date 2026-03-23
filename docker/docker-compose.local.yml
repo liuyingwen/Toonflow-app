@@ -1,5 +1,5 @@
 # 本地打包测试用，使用本地源码构建
-# 用法: docker-compose -f docker/docker-compose.local.yml up -d --build
+# 用法: docker compose -f docker/docker-compose.local.yml up -d --build
 
 services:
   toonflow:
@@ -16,6 +16,8 @@ services:
       - NODE_ENV=prod
     volumes:
       - ../logs:/var/log
+      - ../db.sqlite:/app/db.sqlite
+      - ../uploads:/app/uploads
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
       interval: 30s
