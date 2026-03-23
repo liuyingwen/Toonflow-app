@@ -175,6 +175,13 @@ docker compose -f docker/docker-compose.local.yml up -d --build
 - `./db.sqlite -> /app/db.sqlite`
 - `./uploads -> /app/uploads`
 
+如果服务器无法访问 Docker Hub，可以临时改用镜像站提供的 Node 基础镜像：
+
+```shell
+NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
+docker compose -f docker/docker-compose.local.yml up -d --build
+```
+
 ### 服务端口说明
 
 | 端口    | 用途           | 在线部署映射  | 本地构建映射  |

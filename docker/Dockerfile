@@ -1,5 +1,7 @@
+ARG NODE_IMAGE=node:24-alpine
+
 # 构建阶段
-FROM node:24-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -45,7 +47,7 @@ RUN yarn install --frozen-lockfile
 RUN yarn build
 
 # 生产阶段
-FROM node:24-alpine
+FROM ${NODE_IMAGE}
 
 WORKDIR /app
 

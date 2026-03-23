@@ -6,6 +6,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.local
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
     image: toonflow:local
     container_name: toonflow-local
     restart: unless-stopped
