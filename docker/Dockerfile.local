@@ -8,13 +8,22 @@ WORKDIR /app
 RUN npm config set registry https://registry.npmmirror.com/ && \
     yarn config set registry https://registry.npmmirror.com/
 
-# 安装原生模块编译依赖（better-sqlite3 等需要）
+# 安装原生模块编译依赖（better-sqlite3, sharp, sqlite3 等需要）
 RUN apk add --no-cache python3 make g++ gcc
 
 # 复制依赖文件
 COPY package.json yarn.lock ./
 
-ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+# 国内镜像：跳过 Electron，原生模块预编译包走 npmmirror
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
+    npm_config_better_sqlite3_binary_host=https://npmmirror.com/mirrors/better-sqlite3 \
+    npm_config_sqlite3_binary_host=https://npmmirror.com/mirrors/sqlite3 \
+    npm_config_sharp_binary_host=https://npmmirror.com/mirrors/sharp \
+    npm_config_sharp_libvips_binary_host=https://npmmirror.com/mirrors/sharp-libvips \
+    npm_config_node_sqlite3_binary_host_mirror=https://npmmirror.com/mirrors/sqlite3 \
+    npm_config_canvas_binary_host_mirror=https://npmmirror.com/mirrors/canvas \
+    PREBUILD_ARCH=x64
+
 RUN yarn install --frozen-lockfile --registry https://registry.npmmirror.com/
 
 # 复制源码
@@ -48,8 +57,22 @@ COPY --from=builder /app/scripts/web /usr/share/nginx/html
 COPY docker/nginx.default.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.prod.conf /etc/supervisord.conf
 
+# 安装原生模块编译依赖
+RUN apk add --no-cache python3 make g++ gcc
+
+# 国内镜像配置（同 builder 阶段）
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
+    npm_config_better_sqlite3_binary_host=https://npmmirror.com/mirrors/better-sqlite3 \
+    npm_config_sqlite3_binary_host=https://npmmirror.com/mirrors/sqlite3 \
+    npm_config_sharp_binary_host=https://npmmirror.com/mirrors/sharp \
+    npm_config_sharp_libvips_binary_host=https://npmmirror.com/mirrors/sharp-libvips \
+    npm_config_node_sqlite3_binary_host_mirror=https://npmmirror.com/mirrors/sqlite3
+
 # 只安装生产依赖
 RUN yarn install --frozen-lockfile --production --registry https://registry.npmmirror.com/
+
+# 清理编译工具，减小镜像体积
+RUN apk del python3 make g++ gcc
 
 # 配置 nginx 主配置，日志输出到 stderr/stdout
 RUN sed -i 's|error_log /var/log/nginx/error.log warn;|error_log /dev/stderr warn;|g' /etc/nginx/nginx.conf || true && \
